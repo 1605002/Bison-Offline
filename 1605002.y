@@ -11,7 +11,7 @@ extern FILE *yyin;
 FILE *myLog, *myError;
 extern int line_count;
 string r2d2;
-vector<SymbolInfo*> dlist;
+vector<SymbolInfo*> dlist, pslist;
 vector<string> plist;
 
 SymbolTable *table;
@@ -40,14 +40,16 @@ void yyerror(char *s)
 %}
 
 %define api.value.type { SymbolInfo* }
-%token IF ELSE FOR WHILE
+%nonassoc LOWER_THAN_ELSE
+%nonassoc ELSE
+%token IF  FOR WHILE
 %token INT FLOAT DOUBLE CHAR
 %token RETURN VOID MAIN PRINTLN
 %token ADDOP MULOP ASSIGNOP RELOP LOGICOP
 %token NOT
 %token SEMICOLON COMMA LPAREN RPAREN LCURL RCURL LTHIRD RTHIRD INCOP DECOP
 %token CONST_INT CONST_FLOAT ID
-//%start type_specifier
+//%start func_declaration
 
 %%
 
@@ -105,6 +107,7 @@ func_declaration: type_specifier ID LPAREN parameter_list RPAREN SEMICOLON
 					  $$ = new SymbolInfo($1->name+" "+$2->name+"("+$4->name+");", "");
 					  logP("func_declaration : type_specifier ID LPAREN parameter_list RPAREN SEMICOLON", $$->name);
 					  plist.clear();
+					  pslist.clear();
 
 					  //table->fprint(myLog);
 				  }
@@ -126,11 +129,61 @@ func_declaration: type_specifier ID LPAREN parameter_list RPAREN SEMICOLON
 			  $$ = new SymbolInfo($1->name+" "+$2->name+"();", "");
 			  logP("func_declaration : type_specifier ID LPAREN RPAREN SEMICOLON", $$->name);
 			  plist.clear();
+			  pslist.clear();
 		  }
 		;
 		 
-func_definition: type_specifier ID LPAREN parameter_list RPAREN compound_statement
-		| type_specifier ID LPAREN RPAREN compound_statement
+func_definition: type_specifier ID LPAREN parameter_list RPAREN
+				 {
+					SymbolInfo *cur = table->lookup($2->name);
+					  if(cur)
+					  {
+						  printf("%d\n", cur->isDefined);
+						  if(cur->IDType != "function")
+						  	  errorP(cur->name + " redeclared as different type of symbol");
+					  	  else if(plist != cur->prms)
+						  	  errorP("Conflicting types for " + cur->name);
+						  else if(cur->isDefined)
+						  	  errorP("Redefinition of "+cur->name);
+						  else cur->isDefined = true;
+					  }
+					  else
+					  {
+						  table->insertNode($2->name, "ID", $1->name, "function", plist, true);
+						  
+					  }
+				 } compound_statement
+				{
+					  $$ = new SymbolInfo($1->name+" "+$2->name+"("+$4->name+")"+$7->name, "");
+					  logP("func_definition : type_specifier ID LPAREN parameter_list RPAREN compound_statement", $$->name);
+					  plist.clear();
+					  pslist.clear();
+				}
+		| type_specifier ID LPAREN RPAREN
+		{
+			SymbolInfo *cur = table->lookup($2->name);
+			if(cur)
+			{
+				if(cur->IDType != "function")
+					errorP(cur->name + " redeclared as different type of symbol");
+				else if(plist != cur->prms)
+					errorP("Conflicting types for " + cur->name);
+				else if(cur->isDefined)
+					errorP("Redefinition of "+cur->name);
+				else cur->isDefined = true;
+			}
+			else
+			{
+				table->insertNode($2->name, "ID", $1->name, "function", plist, true);
+				
+			}
+		} compound_statement
+		{
+			$$ = new SymbolInfo($1->name+" "+$2->name+"()"+$6->name, "");
+			logP("func_definition : type_specifier ID LPAREN RPAREN compound_statement", $$->name);
+			plist.clear();
+			pslist.clear();
+		}
  		;				
 
 
@@ -139,7 +192,7 @@ parameter_list: parameter_list COMMA type_specifier ID
 					plist.push_back($3->name);
 					$4->IDType = "variable";
 					$4->returnType = $3->name;
-					dlist.push_back($4);
+					pslist.push_back($4);
 
 					$$ = new SymbolInfo($1->name+", "+$3->name+" "+$4->name, "");
 					logP("parameter_list : parameter_list COMMA type_specifier ID", $$->name);
@@ -150,7 +203,7 @@ parameter_list: parameter_list COMMA type_specifier ID
 			SymbolInfo *tmp = new SymbolInfo("", "ID");
 			tmp->IDType = "variable";
 			tmp->returnType = $3->name;
-			dlist.push_back(tmp);
+			pslist.push_back(tmp);
 
 			$$ = new SymbolInfo($1->name+", "+$3->name, "");
 			logP("parameter_list : parameter_list COMMA type_specifier", $$->name);
@@ -160,7 +213,7 @@ parameter_list: parameter_list COMMA type_specifier ID
 			plist.push_back($1->name);
 			$2->IDType = "variable";
 			$2->returnType = $1->name;
-			dlist.push_back($2);
+			pslist.push_back($2);
 
 			$$ = new SymbolInfo($1->name+" "+$2->name, "");
 			logP("parameter_list : type_specifier ID", $$->name);
@@ -171,7 +224,7 @@ parameter_list: parameter_list COMMA type_specifier ID
 			SymbolInfo *tmp = new SymbolInfo("", "ID");
 			tmp->IDType = "variable";
 			tmp->returnType = $1->name;
-			dlist.push_back(tmp);
+			pslist.push_back(tmp);
 
 			$$ = new SymbolInfo($1->name, "");
 			logP("parameter_list : type_specifier", $$->name);
@@ -179,15 +232,65 @@ parameter_list: parameter_list COMMA type_specifier ID
  		;
 
  		
-compound_statement: LCURL statements RCURL
- 		    | LCURL RCURL
+compound_statement: LCURL
+					{
+						table->enterNew(myLog);
+
+						for(SymbolInfo *si: pslist)
+						{
+							if(si->name == "") errorP("Parameter name omitted");
+							else
+							{
+								SymbolInfo *cur = table->curScope->lookup(si->name);
+								if(cur) errorP("Redefintion of parameter "+si->name);
+								table->insertNode(si->name, si->typ, si->returnType, si->IDType);
+							}
+						}
+					} statements RCURL
+					{
+						table->fprint(myLog);
+						$$ = new SymbolInfo("{\n"+$3->name+"\n}", "");
+						table->exitPrev(myLog);
+					}
+ 		    | LCURL
+			{
+				table->enterNew(myLog);
+
+				for(SymbolInfo *si: pslist)
+				{
+					if(si->name == "") errorP("Parameter name omitted");
+					else
+					{
+						SymbolInfo *cur = table->curScope->lookup(si->name);
+						if(cur) errorP("Redefintion of parameter "+si->name);
+						table->insertNode(si->name, si->typ, si->returnType, si->IDType);
+					}
+				}
+			} RCURL
+			{
+				table->fprint(myLog);
+				$$ = new SymbolInfo("{}", "");
+				table->exitPrev(myLog);
+			}
  		    ;
  		    
 var_declaration: type_specifier declaration_list SEMICOLON
 				 {
 					 $$ = new SymbolInfo($1->name + " " + $2->name+";", "");
-					 for(SymbolInfo *si: dlist) si->returnType = $1->name;
+					 for(SymbolInfo *si: dlist)
+					 {
+						 SymbolInfo *cur = table->curScope->lookup(si->name);
+						 si->returnType = $1->name;
+
+						 if(cur) errorP("Redeclaration of "+si->name);
+						 else
+						 {
+						 	table->insertNode(si->name, si->typ, si->returnType, si->IDType);
+						 }
+					 }
+
 					 logP("var_declaration: type_specifier declaration_list SEMICOLON", $$->name);
+					 dlist.clear();
 				 }
  		 ;
  		 
@@ -197,37 +300,121 @@ type_specifier: INT
 					logP("type_specifier: INT", $$->name);
 				}
  		| FLOAT
+		{
+			$$ = new SymbolInfo("float", "");
+			logP("type_specifier: FLOAT", $$->name);
+		}
  		| VOID
+		{
+			$$ = new SymbolInfo("void", "");
+			logP("type_specifier: VOID", $$->name);
+		}
  		;
  		
 declaration_list: declaration_list COMMA ID
+			{
+				$3->IDType = "variable";
+				dlist.push_back($3);
+				$$ = new SymbolInfo($1->name+", "+$3->name, "");
+				logP("declaration_list : declaration_list COMMA ID", $$->name);
+			}
  		  | declaration_list COMMA ID LTHIRD CONST_INT RTHIRD
+		    {
+				$3->IDType = "array";
+				dlist.push_back($3);
+				$$ = new SymbolInfo($1->name+", "+$3->name+"["+$5->name+"]", "");
+				logP("declaration_list : declaration_list COMMA ID LTHIRD CONST_INT RTHIRD", $$->name);
+			}
  		  | ID
 			{	
 				$1->IDType = "variable";
 				dlist.push_back($1);
 				$$ = new SymbolInfo($1->name, "");
+				logP("declaration_list : ID", $$->name);
 			}
  		  | ID LTHIRD CONST_INT RTHIRD
+		    {
+				$1->IDType = "array";
+				dlist.push_back($1);
+				$$ = new SymbolInfo($1->name+"["+$3->name+"]", "");
+				logP("declaration_list : ID LTHIRD CONST_INT RTHIRD", $$->name);
+			}
  		  ;
  		  
 statements: statement
+		{
+			$$ = new SymbolInfo($1->name, "");
+			logP("statements : statement", $$->name);
+		}
 	   | statements statement
+	    {
+		    $$ = new SymbolInfo($1->name+"\n"+$2->name, "");
+			logP("statements : statements statement", $$->name);
+	    }
 	   ;
 	   
-statement: var_declaration {}
+statement: var_declaration
+		{
+			$$ = new SymbolInfo($1->name, "");
+			logP("statement : var_declaration", $$->name);
+		}
 	  | expression_statement
+	    {
+			$$ = new SymbolInfo($1->name, "");
+			logP("statement : expression_statement", $$->name);
+		}
 	  | compound_statement
+	    {
+			$$ = new SymbolInfo($1->name, "");
+			logP("statement : compound_statement", $$->name);
+		}
 	  | FOR LPAREN expression_statement expression_statement expression RPAREN statement
-	  | IF LPAREN expression RPAREN statement
+	    {
+			$$ = new SymbolInfo("for("+$3->name+" "+$4->name+" "+$5->name+")\n"+$7->name, "");
+			logP("statement : FOR LPAREN expression_statement expression_statement expression RPAREN statement", $$->name);
+		}
+	  | IF LPAREN expression RPAREN statement %prec LOWER_THAN_ELSE
+	    {
+			$$ = new SymbolInfo("if("+$3->name+")\n"+$5->name, "");
+			logP("statement : IF LPAREN expression RPAREN statement %prec LOWER_THAN_ELSE", $$->name);
+		}
 	  | IF LPAREN expression RPAREN statement ELSE statement
+	    {
+			$$ = new SymbolInfo("if("+$3->name+")\n"+$5->name+"\nelse\n"+$7->name, "");
+			logP("statement : IF LPAREN expression RPAREN statement ELSE statement", $$->name);
+		}
 	  | WHILE LPAREN expression RPAREN statement
+	    {
+			$$ = new SymbolInfo("while("+$3->name+")\n"+$5->name, "");
+			logP("statement : WHILE LPAREN expression RPAREN statement", $$->name);
+		}
 	  | PRINTLN LPAREN ID RPAREN SEMICOLON
+	    {
+			SymbolInfo *cur = table->lookup($3->name);
+			if(!cur)
+			{
+				errorP($3->name+" undeclared");
+			}
+			$$ = new SymbolInfo("println("+$3->name+");", "");
+			logP("statement : PRINTLN LPAREN ID RPAREN SEMICOLON", $$->name);
+		}
 	  | RETURN expression SEMICOLON
+	    {
+			$$ = new SymbolInfo("return "+$2->name+";", "");
+			logP("statement : RETURN expression SEMICOLON", $$->name);
+		}
 	  ;
 	  
-expression_statement: SEMICOLON			
+expression_statement: SEMICOLON	
+				{
+					$$ = new SymbolInfo(";", "");
+					logP("expression_statement : SEMICOLON", $$->name);
+				}		
 			| expression SEMICOLON 
+				{
+					$$ = new SymbolInfo($1->name+";", "");
+					logP("expression_statement : expression SEMICOLON", $$->name);
+				}		
 			;
 	  
 variable: ID 		
