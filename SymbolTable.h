@@ -13,6 +13,7 @@ public:
     string returnType;
     string IDType;
     vs prms;
+    bool isDefined = false;
     
     SymbolInfo* nxt;
 
@@ -22,6 +23,8 @@ public:
     : name(name), typ(typ), returnType(returnType), IDType(IDType), nxt(0){}
     SymbolInfo(string name, string typ, string returnType, string IDType, vs prms)
     : name(name), typ(typ), returnType(returnType), IDType(IDType), prms(prms), nxt(0){}
+    SymbolInfo(string name, string typ, string returnType, string IDType, vs prms, bool isDefined)
+    : name(name), typ(typ), returnType(returnType), IDType(IDType), prms(prms), nxt(0), isDefined(isDefined) {}
 
     string getName() { return name; }
     void setName(string name) { this->name = name; }
@@ -64,7 +67,7 @@ public:
     ScopeTable* getParentScope() { return parentScope; }
     void setParentScope(ScopeTable* parentScope) { this->parentScope = parentScope; }
 
-    bool insertNode(string name, string typ, string returnType = "", string IDType = "", vs prms = vs())
+    bool insertNode(string name, string typ, string returnType = "", string IDType = "", vs prms = vs(), bool isDefined = false)
     {
         int h = getHash(name, n);
 
@@ -88,6 +91,7 @@ public:
         cur->returnType = returnType;
         cur->IDType = IDType;
         cur->prms = prms;
+        cur->isDefined = isDefined;
 
         if(prev) prev->setNxt(cur);
         else table[h] = cur;
@@ -190,22 +194,22 @@ public:
 
 class SymbolTable
 {
-private:
+public:
     ScopeTable *curScope;
     int n;
     int curID;
 
-public:
     SymbolTable(int n): n(n), curID(1) { curScope = new ScopeTable(n, 0, 1); }
 
-    void enterNew()
+    void enterNew(FILE *fp)
     {
         ScopeTable *nw = new ScopeTable(n, curScope, ++curID);
+        fprintf(fp, "New ScopeTable with id %d created\n\n", curID);
         //cout<<"New ScopeTable with id "<<curID<<" created"<<endl<<endl;
         curScope = nw;
     }
 
-    void exitPrev()
+    void exitPrev(FILE *fp)
     {
         if(curScope->getParentScope() == 0) return;
 
@@ -214,12 +218,13 @@ public:
         curScope = togo;
         curID--;
 
+        fprintf(fp, "ScopeTable with id %d removed\n\n", curID+1);
         //cout<<"ScopeTable with id "<<curID+1<<" removed"<<endl<<endl;
     }
 
-    bool insertNode(string name, string typ, string returnType, string IDType, vs prms)
+    bool insertNode(string name, string typ, string returnType = "", string IDType = "", vs prms = vs(), bool isDefined = false)
     {
-         return curScope->insertNode(name, typ, returnType, IDType, prms);
+         return curScope->insertNode(name, typ, returnType, IDType, prms, isDefined);
     }
 
     void removeNode(string name) { curScope->deleteNode(name); }
