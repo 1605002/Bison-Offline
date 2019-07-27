@@ -12,7 +12,7 @@ FILE *myLog, *myError;
 extern int line_count;
 string r2d2;
 vector<SymbolInfo*> dlist, pslist;
-vector<string> plist;
+vector<string> plist, alist;
 
 SymbolTable *table;
 
@@ -417,50 +417,295 @@ expression_statement: SEMICOLON
 				}		
 			;
 	  
-variable: ID 		
-	 | ID LTHIRD expression RTHIRD 
+variable: ID
+		{
+			SymbolInfo *cur = table->lookup($1->name);
+			if(!cur)
+			{
+				errorP($1->name+" undeclared");
+				$$ = new SymbolInfo($1->name, "");
+			}
+			else if(cur->IDType != "variable")
+			{
+				errorP(cur->name+" is not a variable");
+				$$ = new SymbolInfo($1->name, "");
+			}
+			else $$ = new SymbolInfo($1->name, "", cur->returnType);
+
+			logP("variable : ID", $$->name);
+		}
+	 | ID LTHIRD expression RTHIRD
+	 	{
+			SymbolInfo *cur = table->lookup($1->name);
+			if(!cur)
+			{
+				errorP($1->name+" undeclared");
+				$$ = new SymbolInfo($1->name+"["+$3->name+"]", "");
+			}
+			else if(cur->IDType != "array")
+			{
+				errorP(cur->name+" is not a variable");
+				$$ = new SymbolInfo($1->name+"["+$3->name+"]", "");
+			}
+			else
+			{
+				if($3->returnType != "int") errorP("Array index not integer");
+				$$ = new SymbolInfo($1->name+"["+$3->name+"]", "", cur->returnType);
+			}
+
+			logP("variable : ID LTHIRD expression RTHIRD", $$->name);
+		}
 	 ;
 	 
-expression: logic_expression	
-	   | variable ASSIGNOP logic_expression 	
+expression: logic_expression
+		{
+			$$ = new SymbolInfo($1->name, "", $1->returnType);
+			logP("expression : logic_expression", $$->name);
+		}
+	   | variable ASSIGNOP logic_expression
+	   {
+		   if($1->returnType != "" && $1->returnType != $3->returnType)
+		   		errorP("Oparands don't match in type");
+			
+			$$ = new SymbolInfo($1->name+" = "+$3->name, "", $1->returnType);
+			logP("expression : variable ASSIGNOP logic_expression", $$->name);
+	   }
 	   ;
 			
-logic_expression: rel_expression 	
-		 | rel_expression LOGICOP rel_expression 	
+logic_expression: rel_expression
+			{
+				$$ = new SymbolInfo($1->name, "", $1->returnType);
+				logP("logic_expression: rel_expression", $$->name);
+			}	
+		 | rel_expression LOGICOP rel_expression 
+		 	{
+				if($1->returnType == "void" || $3->returnType == "void")
+				{
+					errorP("void in expression");
+					$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "");
+				}
+				else
+				{
+					$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "", "int");
+				}
+
+				logP("logic_expression : rel_expression LOGICOP rel_expression", $$->name);
+			}
 		 ;
 			
 rel_expression: simple_expression 
-		| simple_expression RELOP simple_expression	
+			{
+				$$ = new SymbolInfo($1->name, "", $1->returnType);
+				logP("rel_expression: simple_expression", $$->name);
+			}
+		| simple_expression RELOP simple_expression
+			{
+				if($1->returnType == "void" || $3->returnType == "void")
+				{
+					errorP("void in expression");
+					$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "");
+				}
+				else
+				{
+					$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "", "int");
+				}
+
+				logP("rel_expression: simple_expression RELOP simple_expression", $$->name);
+			}
 		;
 				
-simple_expression: term 
-		  | simple_expression ADDOP term 
+simple_expression: term
+				{
+					$$ = new SymbolInfo($1->name, "", $1->returnType);
+					logP("simple_expression: term", $$->name);
+				}
+		  | simple_expression ADDOP term
+		  		{
+					if($1->returnType == "" || $3->returnType == "")
+					{
+						$$ = new SymbolInfo($1->name, "");
+					}
+					else
+					{
+						if($1->returnType == "void" || $3->returnType == "void")
+						{
+							$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "");
+							errorP("void in expression");
+						}
+						else
+						{
+							string nrt = "int";
+							if($1->returnType == "float" || $3->returnType == "float") nrt = "float";
+
+							$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "", nrt);
+						}
+					}
+
+					logP("simple_expression: simple_expression ADDOP term", $$->name);
+				} 
 		  ;
 					
 term:	unary_expression
+	{
+		$$ = new SymbolInfo($1->name, "", $1->returnType);
+		logP("term : unary_expression", $$->name);
+	}
      |  term MULOP unary_expression
+	{
+		if($1->returnType == "" || $3->returnType == "")
+		{
+			$$ = new SymbolInfo($1->name, "");
+		}
+		else
+		{
+			if($1->returnType == "void" || $3->returnType == "void")
+			{
+				$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "");
+				errorP("void in expression");
+			}
+			else if($2->name == "%" && ($1->returnType != "int" || $3->returnType != "int"))
+			{
+				$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "");
+				errorP("non-integer operand of modulus operator");
+			}
+			else
+			{
+				string nrt = "int";
+				if($1->returnType == "float" || $3->returnType == "float") nrt = "float";
+
+				$$ = new SymbolInfo($1->name+" "+$2->name+" "+$3->name, "", nrt);
+			}
+		}
+
+		logP("term : term MULOP unary_expression", $$->name);
+	}
      ;
 
-unary_expression: ADDOP unary_expression  
-		 | NOT unary_expression 
+unary_expression: ADDOP unary_expression
+				{
+					if($2->returnType == "void") 
+					{
+						$$ = new SymbolInfo($1->name+$2->name, "");
+						errorP("void in expression");
+					}
+					else $$ = new SymbolInfo($1->name+$2->name, "", $2->returnType);
+					
+					logP("unary_expression : ADDOP unary_expression", $$->name);
+				}
+		 | NOT unary_expression
+		 		{
+					if($2->returnType == "void")
+					{
+						$$ = new SymbolInfo($1->name+$2->name, "");
+						errorP("void in expression");
+					}
+					else if($2->returnType != "" && $2->returnType != "int")
+					{
+						$$ = new SymbolInfo($1->name+$2->name, "");
+						errorP("operand of NOT not integer");
+					}
+					else $$ = new SymbolInfo($1->name+$2->name, "", $2->returnType);
+
+					logP("unary_expression : NOT unary_expression", $$->name);
+				}
 		 | factor 
+		 		{
+					$$ = new SymbolInfo($1->name, "", $1->returnType);
+					logP("unary_expression : factor", $$->name);
+				}
 		 ;
 	
-factor: variable 
+factor: variable
+		{
+			$$ = new SymbolInfo($1->name, "", $1->returnType);
+			logP("factor : variable", $$->name);
+		}
 	| ID LPAREN argument_list RPAREN
+		{
+			SymbolInfo *cur = table->lookup($1->name);
+			if(!cur)
+			{
+				errorP("Undefined reference to "+$1->name);
+				$$ = new SymbolInfo($1->name+"("+$3->name+")", "");
+			}
+			else if(cur->IDType != "function")
+			{
+				errorP($1->name+" is not a function");
+				$$ = new SymbolInfo($1->name+"("+$3->name+")", "");
+			}
+			else if(cur->prms != $3->arms)
+			{
+				errorP("Function argument list does not match in type");
+				$$ = new SymbolInfo($1->name+"("+$3->name+")", "", cur->returnType);
+			}
+			else $$ = new SymbolInfo($1->name+"("+$3->name+")", "", cur->returnType);
+
+			logP("factor : ID LPAREN argument_list RPAREN", $$->name);
+		}
 	| LPAREN expression RPAREN
-	| CONST_INT 
+		{
+			if($2->returnType == "void")
+			{
+				$$ = new SymbolInfo("("+$2->name+")", "");
+				errorP("void in expression");
+			}
+			else
+			{
+				$$ = new SymbolInfo("("+$2->name+")", "", $2->returnType);
+			}
+
+			logP("factor : CONST_INT", $$->name);
+		}
+	| CONST_INT
+		{
+			$$ = new SymbolInfo($1->name, "", "int");
+			logP("factor : LPAREN expression RPAREN", $$->name);
+		}
 	| CONST_FLOAT
-	| variable INCOP 
+		{
+			$$ = new SymbolInfo($1->name, "", "float");
+			logP("factor : CONST_FLOAT", $$->name);
+		}
+	| variable INCOP
+		{
+			$$ = new SymbolInfo($1->name+"++", "", $1->returnType);
+			logP("factor : variable INCOP", $$->name);
+		} 
 	| variable DECOP
+		{
+			$$ = new SymbolInfo($1->name+"--", "", $1->returnType);
+			logP("factor : variable DECOP", $$->name);
+		}
 	;
 	
 argument_list: arguments
+			{
+				$$ = new SymbolInfo($1->name, "");
+				$$->arms = $1->arms;
+				logP("argument_list : arguments", $$->name);
+			}
 			  |
+			{
+				$$ = new SymbolInfo("", "");
+				logP("argument_list : ", $$->name);
+			}
 			  ;
 	
 arguments: arguments COMMA logic_expression
+		{
+			if($3->returnType == "void") errorP("void in expression");
+			$$ = new SymbolInfo($1->name+", "+$3->name, "");
+			$$->arms = $1->arms;
+			$$->arms.push_back($3->returnType);
+			logP("arguments : arguments COMMA logic_expression", $$->name);
+		}
 	      | logic_expression
+		{
+			if($1->returnType == "void") errorP("void in expression");
+			$$ = new SymbolInfo($1->name, "");
+			$$->arms.push_back($1->returnType);
+			logP("arguments : logic_expression", $$->name);
+		}
 	      ;
  
 
