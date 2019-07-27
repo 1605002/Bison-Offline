@@ -13,12 +13,14 @@ public:
     string returnType;
     string IDType;
     vs prms;
+    vs arms;
     bool isDefined = false;
     
     SymbolInfo* nxt;
 
     SymbolInfo(): nxt(0) {}
     SymbolInfo(string name, string typ): name(name), typ(typ), nxt(0) {}
+    SymbolInfo(string name, string typ, string returnType): name(name), typ(typ), returnType(returnType), nxt(0) {}
     SymbolInfo(string name, string typ, string returnType, string IDType)
     : name(name), typ(typ), returnType(returnType), IDType(IDType), nxt(0){}
     SymbolInfo(string name, string typ, string returnType, string IDType, vs prms)
